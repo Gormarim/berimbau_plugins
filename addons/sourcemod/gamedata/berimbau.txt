@@ -1,0 +1,36 @@
+"Games"
+{
+	"berimbau"
+	{
+		"Offsets"
+		{
+		}
+		"Signatures"
+		{
+			//Berimbau::IsGameModeDuel(void)
+			"IsGameModeDuel"
+			{
+				"library"	"server"
+				"windows"	"\x2A\x2A\x2A\x2A\x2A\x2A\x85\xC9\x2A\x2A\x8B\x01\x8B\x90\x60\x02\x00\x00\xFF\xD2\x33\xC9\x85\xC0\x0F\x94\xC0\xC3"
+				"linux"		"@_ZN8Berimbau14IsGameModeDuelEv"
+			}
+			//Berimbau::IsGameModeFFA(void)
+			"IsGameModeFFA"
+			{
+				"library"	"server"
+				"windows"	"\x2A\x2A\x2A\x2A\x2A\x2A\x85\xC9\x2A\x2A\x8B\x01\x8B\x90\x60\x02\x00\x00\xFF\xD2\x33\xC9\x83\xF8\x01\x0F\x94\xC0\xC3"
+				"linux"		"@_ZN8Berimbau13IsGameModeFFAEv"
+			}
+			"GetActionFactory"
+			{
+				"library"	"server"
+				"linux"		"@_ZN8Berimbau16GetActionFactoryEv"
+			}
+			"GetActionById"
+			{
+				"library"	"server"
+				"linux"		"@_ZN8Berimbau14CActionFactory13GetActionByIdENS_7Actions8ActionIdE"
+			}
+		}
+	}
+}
