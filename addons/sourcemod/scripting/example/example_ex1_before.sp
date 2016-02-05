@@ -1,7 +1,17 @@
-//TODO
+//////////////////////////////////////
+// start game with command /ex1_join
+// anyone can type it at any time
+// first one creates a warm up round (used for waiting another players). To start round 1 everyone who joined must type target message
+// faster typing = more points. player with max points wins.
+// 10 rounds, no damage protection, no walls
+/////////////////////////////////////
+
+///!TODO
 //
 // 1. Move Target Text from chat to hud
 // 2. Increase Target Text Length after each round
+// 3. More testing!
+
 
 #include <sourcemod>
 #include <sdktools>
@@ -305,6 +315,12 @@ GameOver()
 	}
 }
 
+//////////////////////
+//					//
+//		Misc		//
+//					//
+//////////////////////
+
 max (a, b)
 {
 	if (b > a) 
@@ -327,6 +343,12 @@ min (a, b)
 		return a;
 	}
 }
+
+//////////////////////
+//					//
+//		Tests		//
+//					//
+//////////////////////
 public Action:Test(client, args) 
 { 
 	TextGen();
