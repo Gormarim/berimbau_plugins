@@ -74,7 +74,7 @@ public Plugin myinfo =
 int g_wall[ARENA_WALL_SEG];
 //int g_round;
 bool g_bMapIsCorrect;
-float vecArenaCenter[3] = {ARENA_CENTRE_X, ARENA_CENTRE_Y, ARENA_CENTRE_Z};
+//float vecArenaCenter[3] = {ARENA_CENTRE_X, ARENA_CENTRE_Y, ARENA_CENTRE_Z};  <- only for circle arenas
 bool g_bGameStarted;
 bool g_bIsPlaying[MAXPLAYERS + 1];
 int g_playerCount;
@@ -133,14 +133,21 @@ public Action:Start(client, args)
 			g_bIsPlaying[i] = false;
 			if (IsValidClient(i))
 			{
-				float vecPosition[3];
-				GetClientAbsOrigin(i, vecPosition);
-				//PrintToServer("--DEBUG-- Dist = %3.3f", GetDistanceHor(vecArenaCenter, vecPosition));
-				if (GetDistanceHor(vecArenaCenter, vecPosition) <= ARENA_SPAWN_RADIUS*2.5)
+				if (!IsInDuel(i))
 				{
-					g_bIsPlaying[i] = true;
-					SDKHook(i, SDKHook_OnTakeDamage, OnTakeDamage);
-					g_playerCount++;
+					float vecPosition[3];
+					GetClientAbsOrigin(i, vecPosition);
+					//PrintToServer("--DEBUG-- Dist = %3.3f", GetDistanceHor(vecArenaCenter, vecPosition));
+					//if (GetDistanceHor(vecArenaCenter, vecPosition) <= ARENA_SPAWN_RADIUS*2.5)
+					
+					if ((vecPosition[2] <= 377.0) && (vecPosition[2] >= 116.0)
+						&& (vecPosition[1] <= 480.0) && (vecPosition[1] >= -224.0)
+						&& (vecPosition[0] <= 1824.0) && (vecPosition[0] >= 800.0))
+					{
+						g_bIsPlaying[i] = true;
+						SDKHook(i, SDKHook_OnTakeDamage, OnTakeDamage);
+						g_playerCount++;
+					}
 				}
 			}
 		}
@@ -160,17 +167,20 @@ public Action:Start(client, args)
 
 StartingTeleport()
 {
+	int playerI = 0;
 	for (int i = 1; i < MaxClients; i++)
 	{
 		if (g_bIsPlaying[i])
 		{
 			if (IsValidClient(i))
 			{
+				playerI++;
+				
 				float vecStartPos[3];
 				float vecStartDir[3]; 
 				
-				vecStartPos[0] = ARENA_CENTRE_X + Cosine(2.0*PI*(i-1) / g_playerCount) *ARENA_SPAWN_RADIUS;
-				vecStartPos[1] = ARENA_CENTRE_Y + Sine(2.0*PI*(i-1) / g_playerCount) *ARENA_SPAWN_RADIUS;
+				vecStartPos[0] = ARENA_CENTRE_X + Cosine(2.0*PI*(playerI-1) / g_playerCount) *ARENA_SPAWN_RADIUS;
+				vecStartPos[1] = ARENA_CENTRE_Y + Sine(2.0*PI*(playerI-1) / g_playerCount) *ARENA_SPAWN_RADIUS;
 				vecStartPos[2] = ARENA_CENTRE_Z
 				vecStartDir[0] = 10.0;
 				vecStartDir[1] = float(RoundFloat(180.0 + 360.0*(i-1) / g_playerCount) % 360);
@@ -192,8 +202,11 @@ StartingTeleport()
 public PlayerDeath(Handle:event, const String:name[], bool:dontBroadcast)
 {
 	int victim = GetClientOfUserId(GetEventInt(event, "userid"));
+	if (g_bIsPlaying[victim])
+	{
 	g_bIsPlaying[victim] = false;
 	NextRound(victim);
+	}
 }
 
 public OnClientDisconnect(client)
@@ -211,6 +224,19 @@ NextRound(client)
 	g_bIsPlaying[client] = false;
 	g_playerCount--;
 	SDKUnhook(client, SDKHook_OnTakeDamage, OnTakeDamage);
+	
+	if (IsValidClient(client))
+	{
+		char clientName[64];
+		GetClientName(client, clientName, sizeof(clientName));
+		for (int i = 1; i < MaxClients; i++)
+		{
+			if (g_bIsPlaying[i])
+			{
+				PrintToChat(i, "\x03[EX2] %s died", clientName);
+			}
+		}
+	}
 	
 	if (g_playerCount > 1)
 	{
@@ -333,12 +359,15 @@ public Action:OnClientCommand(client, args)
 //		Misc		//
 //					//
 //////////////////////
+
+/*
+	//Distances are for circle arena
 float GetDistanceHor(Float:A[3], Float:B[3])
 {
 	return SquareRoot( (A[0] - B[0])*(A[0] - B[0]) + (A[1] - B[1])*(A[1] - B[1]));
 }
 
-/*float GetDistance(float A[3], float B[3])
+float GetDistance(float A[3], float B[3])
 {
 	return SquareRoot( (A[0] - B[0])*(A[0] - B[0]) + (A[1] - B[1])*(A[1] - B[1]) + (A[2] - B[2])*(A[2] - B[2]));
 }*/
@@ -399,15 +428,7 @@ bool:IsInDuel(client)
 
 public Action Test(client, args)
 {
-	for (int i; i < ARENA_WALL_SEG; i++)
-	{
-		float vecDir[3];
-		vecDir[0] = 0.0;
-		vecDir[1] = float(RoundFloat(180.0 + 360.0/(2.0*ARENA_WALL_SEG) + 360.0*i / ARENA_WALL_SEG) % 360);
-		vecDir[2] = 0.0;
-		
-		TeleportEntity(g_wall[i], NULL_VECTOR, vecDir, NULL_VECTOR);
-	}
+//
 }
 /*
 DrawBeam(Float:PointFrom[3], Float:PointTo[3])
