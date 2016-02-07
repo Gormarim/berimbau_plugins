@@ -20,7 +20,9 @@ public void OnPluginStart()
 	
 }
 
-public OnAllPluginsLoaded()
+public void OnAllPluginsLoaded()
 {
-	RememberMe();
+	RegEvent("sm_noclip Gorm", "NOCLIP GORM");
+	RegEventConVar("bb_air_drag");
 }
+

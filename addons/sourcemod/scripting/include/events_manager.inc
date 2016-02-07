@@ -6,22 +6,39 @@
 /**
  * 
  */
-native void RememberMe();
-
-native void __NoticeMe();
-
-public void __CreateTimerPls()
+ 
+enum EventType
 {
-	CreateTimer(2.0, __TimerFunc, 1, TIMER_REPEAT);
+	EventType_Gamemode = 0,
+	EventType_Event
+};
+
+forward OnPlayerFree(client);
+
+forward OnPlayerBusy(client);
+
+native bool:RegPlugin();
+
+native bool:UnloadPlugin();
+
+native bool:RegGamemode(const String:start_command[], const String:display_name[], const String:info[] = "", id = 0);
+
+native bool:RegEvent(const String:start_command[], const String:display_name[], const String:info[] = "", id = 0);
+
+native bool:RegGamemodeConVar(char[] str_convar, id = 0);
+
+native bool:RegEventConVar(char[] str_convar, id = 0);
+
+forward __EMCheckStatus();
+
+native __EMValid();
+
+public __EMCheckStatus()
+{
+	__EMValid();
 }
 
-public Action __TimerFunc(Handle timer, any data)
-{
-	__NoticeMe();
-	return Plugin_Continue;
-}
-
-public SharedPlugin __pl_events_manager =
+public SharedPlugin:__pl_events_manager =
 {
 	name = "bs_events_manager",
 	file = "events_manager.smx",
@@ -33,7 +50,7 @@ public SharedPlugin __pl_events_manager =
 };
 
 #if !defined REQUIRE_PLUGIN
-public void __pl_events_manager_SetNTVOptional()
+public __pl_events_manager_SetNTVOptional()
 {
 
 }
