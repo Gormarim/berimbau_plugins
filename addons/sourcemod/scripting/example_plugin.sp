@@ -17,7 +17,8 @@ public Plugin myinfo =
 
 public void OnPluginStart()
 {
-	
+	RegConsoleCmd("ev_start", StartEv);
+	RegConsoleCmd("ev_stop", StopEv);
 }
 
 public void OnAllPluginsLoaded()
@@ -26,3 +27,23 @@ public void OnAllPluginsLoaded()
 	RegEventConVar("bb_air_drag");
 }
 
+public Action StartEv(int client, int args)
+{
+	if (StartEvent())
+		PrintToChatAll("Event started!");
+	else
+		PrintToChatAll("Cannot start event");
+	
+	return Plugin_Handled;
+}
+
+public Action StopEv(int client, int args)
+{
+	if (EndEvent())
+		PrintToChatAll("Event stopped!");
+	else
+		PrintToChatAll("Cannot stop event");
+	
+	return Plugin_Handled;
+}
+	
