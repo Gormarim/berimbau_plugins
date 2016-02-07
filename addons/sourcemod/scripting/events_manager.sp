@@ -17,7 +17,8 @@ public Plugin myinfo =
 enum EventType
 {
 	EventType_Gamemode = 0,
-	EventType_Event
+	EventType_Event,
+	EventType_PlainEvent
 };
 
 #define MAX_STR_LEN 64
@@ -25,10 +26,14 @@ enum EventType
 Handle g_fwdCheckStatus;
 Handle g_fwdOnPlayerFree;
 Handle g_fwdOnPlayerBusy;
+Handle g_fwdCanStartGamemode;
 
 StringMap g_statusMap;
 ArrayList g_statusList;
 StringMap g_pluginsMap;
+ArrayList g_activeEvents;
+
+bool g_bCanStartEvents;
 
 Menu mn_main;
 Menu mn_gamemodes;
@@ -63,7 +68,7 @@ methodmap StringProp < ArrayList
 	
 methodmap BBEvent < ArrayList
 {
-	public BBEvent(Handle plugin, EventType type, char[] cmd, char[] name, char[] info, int id)
+	public BBEvent(Handle plugin, EventType type, int id, char[] cmd, char[] name, char[] info)
 	{
 		ArrayList ev = new ArrayList(1, 9);
 		
@@ -173,7 +178,7 @@ methodmap BBEvent < ArrayList
 		{
 			if (this.Type == EventType_Gamemode)
 				AddEventToMenu(mn_convars_gamemodes, this);
-			else
+			else if (this.Type == EventType_Event)
 				AddEventToMenu(mn_convars_events, this);
 				
 			this.ConVarsMenu = new Menu(MenuHandler_ConvarsDynamic, MENU_ACTIONS_DEFAULT);
@@ -196,48 +201,21 @@ methodmap BBEvent < ArrayList
 		
 		return true;
 	}
-	
-	public void DeleteData()
-	{	
-		FreeEvent(this);
-		delete this.StartCmd;
-		delete this.Name;
-		delete this.Info;
-		delete this.ConVars;
-		PrintToServer("delete lase!");
-	}
-}
-
-methodmap EventsList < ArrayList
-{
-	public EventsList()
-	{
-		return view_as<EventsList>(new ArrayList(1, 0));
-	}
-	
-	public void DeleteData()
-	{
-		int len = this.Length;
-		for (int i = 0; i < len; ++i)
-		{
-			BBEvent ev = this.Get(i);
-			ev.DeleteData();
-			delete ev;
-		}
-	}
 }
 
 methodmap PluginData < ArrayList
 {
 	public PluginData(Handle plugin)
 	{
-		ArrayList pd = new ArrayList(1, 6);
+		ArrayList pd = new ArrayList(1, 8);
 		pd.Set(0, plugin);
-		pd.Set(1, new EventsList());
+		pd.Set(1, new ArrayList());
 		pd.Set(2, new StringMap());
-		pd.Set(3, new EventsList());
+		pd.Set(3, new ArrayList());
 		pd.Set(4, new StringMap());
-		pd.Set(5, new ArrayList(MAX_STR_LEN, 0));
+		pd.Set(5, new ArrayList());
+		pd.Set(6, new StringMap());
+		pd.Set(7, new ArrayList(MAX_STR_LEN, 0));
 		
 		return view_as<PluginData>(pd);
 	}
@@ -249,7 +227,7 @@ methodmap PluginData < ArrayList
 			return this.Get(0);
 		}
 	}
-	property EventsList Gamemodes
+	property ArrayList Gamemodes
 	{
 		public get()
 		{
@@ -263,7 +241,7 @@ methodmap PluginData < ArrayList
 			return this.Get(2);
 		}
 	}
-	property EventsList Events
+	property ArrayList Events
 	{
 		public get()
 		{
@@ -277,37 +255,26 @@ methodmap PluginData < ArrayList
 			return this.Get(4);
 		}
 	}
-	property ArrayList Cmds
+	property ArrayList PlainEvents
 	{
 		public get()
 		{
 			return this.Get(5);
 		}
 	}
-	property int GamemodesCount
+	property StringMap PlainEventsMap
 	{
 		public get()
 		{
-			return (view_as<EventsList>(this.Get(1))).Length;
+			return this.Get(6);
 		}
 	}
-	property int EventsCount
+	property ArrayList Cmds
 	{
 		public get()
 		{
-			return (view_as<EventsList>(this.Get(3))).Length;
+			return this.Get(7);
 		}
-	}
-	public void DeleteData()
-	{	
-		this.Gamemodes.DeleteData();
-		this.Events.DeleteData();
-		
-		delete this.Gamemodes;
-		delete this.GamemodesMap;
-		delete this.Events;
-		delete this.EventsMap;
-		delete this.Cmds;
 	}
 	
 	public BBEvent GetEvent(int id, EventType type)
@@ -318,18 +285,21 @@ methodmap PluginData < ArrayList
 		BBEvent ev = null;
 		if (type == EventType_Gamemode)
 			this.GamemodesMap.GetValue(str_id, ev);
-		else
+		else if (type == EventType_Event)
 			this.EventsMap.GetValue(str_id, ev);
+		else
+			this.PlainEventsMap.GetValue(str_id, ev);
+			
 		return ev;
 	}
 
-	public bool AddEvent(char[] start_command, char[] display_name, char[] info, int id, EventType type)
+	public bool AddEvent(EventType type, int id, char[] start_command, char[] display_name, char[] info)
 	{
 		char str_id[12];
 		Format(str_id, 12, "%d", id);
 		
 		BBEvent ev;
-		EventsList list;
+		ArrayList list;
 		StringMap map;
 		Menu menu;
 		if (type == EventType_Gamemode)
@@ -338,41 +308,35 @@ methodmap PluginData < ArrayList
 			map = this.GamemodesMap;
 			menu = mn_gamemodes;
 		}
-		else
+		else if (type == EventType_Event)
 		{
 			list = this.Events;
 			map = this.EventsMap;
 			menu = mn_events;
 		}
+		else
+		{
+			list = this.PlainEvents;
+			map = this.PlainEventsMap;
+		}
 		
 		if (map.GetValue(str_id, ev))
 			return false;
 		
-		ev = new BBEvent(this.Plugin, type, start_command, display_name, info, id);
+		ev = new BBEvent(this.Plugin, type, id, start_command, display_name, info);
 		map.SetValue(str_id, ev);
 		list.Push(ev);
 		
-		AddEventToMenu(menu, ev);
-		return true;
-	}
-	
-	public bool AddCmd(char[] cmd)
-	{
-		char buffer[MAX_STR_LEN];
-		int len = this.Cmds.Length;
-		for (int i = 0; i < len; ++i)
-		{
-			this.Cmds.GetString(i, buffer, MAX_STR_LEN);
-			if (StrEqual(cmd, buffer, false))
-				return false;
-		}
-		
-		this.Cmds.PushString(cmd);
+		if (type != EventType_PlainEvent)
+			AddEventToMenu(menu, ev);
+			
 		return true;
 	}
 }
 
 BBEvent g_players[33];
+BBEvent g_activeGamemode;
+BBEvent g_pendingGamemode;
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {	
@@ -380,8 +344,18 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("UnloadPlugin", __UnloadPlugin);
 	CreateNative("RegGamemode", __RegGamemode);
 	CreateNative("RegEvent", __RegEvent);
+	CreateNative("RegPlainEvent", __RegPlainEvent);
 	CreateNative("RegGamemodeConVar", __RegGamemodeConVar);
 	CreateNative("RegEventConVar", __RegEventConVar);
+	CreateNative("StartEvent", __StartEvent);
+	CreateNative("EndEvent", __EndEvent);
+	CreateNative("StartPlainEvent", __StartPlainEvent);
+	CreateNative("EndPlainEvent", __EndPlainEvent);
+	CreateNative("StartGamemode", __StartGamemode);
+	CreateNative("EndGamemode", __EndGamemode);
+	CreateNative("GrabPlayer", __GrabPlayer);
+	CreateNative("FreePlayer", __FreePlayer);
+	CreateNative("FreeAllPlayers", __FreeAllPlayers);
 	
 	CreateNative("__EMValid", Valid);
 	
@@ -393,8 +367,12 @@ public void OnPluginStart()
 {
 	g_pluginsMap = new StringMap();
 	
+	g_activeEvents = new ArrayList();
+	g_activeGamemode = null;
+	g_pendingGamemode = null;
+	
 	g_statusMap = new StringMap();
-	g_statusList = new ArrayList(1, 0);
+	g_statusList = new ArrayList(2, 0);
 	
 	g_fwdCheckStatus = CreateForward(ET_Ignore);
 	g_fwdOnPlayerFree = CreateGlobalForward("OnPlayerFree", ET_Ignore, Param_Cell);
@@ -405,6 +383,57 @@ public void OnPluginStart()
 	CreateTimer(5.0, CheckStatus, _, TIMER_REPEAT);
 	
 	RegConsoleCmd("sm_events", EventsMenu);
+	RegConsoleCmd("ev_active_events", DumpActiveEvents);
+	RegConsoleCmd("ev_active_gamemode", DumpActiveGamemode);
+	RegConsoleCmd("ev_pending_gamemode", DumpPendingGamemode);
+}
+
+public Action DumpActiveEvents(int client, int args)
+{
+	PrintToChatAll("Active Events Dump:");
+	int len = g_activeEvents.Length;
+	PrintToChatAll("Count: %d", len);
+	for (int i = 0; i < len; ++i)
+	{
+		PrintToChatAll("[%d]", i);
+		DumpEvent(view_as<BBEvent>(g_activeEvents.Get(i)));
+	}
+	
+	return Plugin_Handled;
+}
+
+void DumpEvent(BBEvent ev)
+{
+	char cmd[64];
+	ev.StartCmd.Get(cmd, 64);
+	PrintToChatAll("(%d) Plugin: %d | Type: %d | Cmd: %s", ev, ev.Plugin, ev.Type, cmd);
+}
+
+public Action DumpActiveGamemode(int client, int args)
+{
+	PrintToChatAll("Active Gamemode Dump:");
+	if (g_activeGamemode != null)
+		DumpEvent(g_activeGamemode);
+	else
+		PrintToChatAll("Active Gamemode - NONE");
+	
+	return Plugin_Handled;
+}
+
+public Action DumpPendingGamemode(int client, int args)
+{
+	PrintToChatAll("Pending Gamemode Dump:");
+	if (g_pendingGamemode != null)
+		DumpEvent(g_pendingGamemode);
+	else
+		PrintToChatAll("Pending Gamemode - NONE");
+	
+	return Plugin_Handled;
+}
+
+public void OnMapStart()
+{
+	g_bCanStartEvents = true;
 }
 
 public Action EventsMenu(int client, int args)
@@ -442,16 +471,17 @@ public Action CheckStatus(Handle timer)
 		{
 			plugin = ReadPackCell(dp);
 			delete dp;
-			
 			char str_plugin[12];
 			Format(str_plugin, 12, "%d", plugin);
 			
 			g_statusMap.Remove(str_plugin);
 			g_statusList.Erase(pos);
 			DeletePlugin(plugin);
+			PrintToServer("Deleted!");
 		}	
 		--pos;
 	}
+
 	return Plugin_Continue;
 }
 
@@ -525,19 +555,84 @@ bool AddPlugin(Handle plugin)
 
 bool DeletePlugin(Handle plugin)
 {
+	PrintToServer("(DeletePlugin)");
 	PluginData pd = GetPluginData(plugin);
-	
+	PrintToServer("bp1");
 	if (pd == null)
 		return false;
-	RemovePluginFromMenus(pd);
-	pd.DeleteData();
+	PrintToServer("not null");
+	DeleteEventsList(pd.Gamemodes, true, mn_gamemodes, mn_convars_gamemodes);
+	PrintToServer("GMS");
+	DeleteEventsList(pd.Events, true, mn_events, mn_convars_events);
+	PrintToServer("EVS");
+	DeleteEventsList(pd.PlainEvents);
+	PrintToServer("Plain");
+	
+	delete pd.GamemodesMap;
+	delete pd.EventsMap;
+	delete pd.PlainEventsMap;
+	delete pd.Cmds;
 	delete pd;
+	
+	PrintToServer("END!");
 	
 	return true;
 }
 
+void DeleteEventsList(ArrayList list, bool menus = false, Menu menu1 = null, Menu menu2 = null)
+{
+	BBEvent ev;
+	int len = list.Length;
+	for (int i = 0; i < len; ++i)
+	{
+		ev = list.Get(i);
+		if (menus)
+			RemoveEventFromMenus(ev, menu1, menu2);
+		DeleteEvent(ev);
+	}
+	
+	delete list;
+}
+
+void DeleteEvent(BBEvent ev)
+{	
+	if (ev == g_pendingGamemode)
+	{
+		if (g_activeGamemode == null)
+			g_bCanStartEvents = true;
+		g_pendingGamemode = null;
+	}
+	else if (ev == g_activeGamemode)
+	{
+		if (g_pendingGamemode != null && ev.Plugin != g_pendingGamemode.Plugin)
+		{
+			g_activeGamemode = g_pendingGamemode;
+			g_pendingGamemode = null;
+			Call_StartForward(g_fwdCanStartGamemode);
+			Call_Finish();
+			CloseHandle(g_fwdCanStartGamemode);
+		}
+		else
+		{
+			g_activeGamemode = null;
+			g_bCanStartEvents = true;
+		}
+	}
+	
+	if (ev.Active)
+		g_activeEvents.Erase(g_activeEvents.FindValue(ev));
+		
+	FreeEvent(ev);
+	delete ev.StartCmd;
+	delete ev.Name;
+	delete ev.Info;
+	delete ev.ConVars;
+	delete ev;
+}
+	
+
 /********************************************
-				NATIVES
+			NATIVES
 ********************************************/
 
 public int __RegPlugin(Handle plugin, int numParams)
@@ -568,83 +663,228 @@ public int __UnloadPlugin(Handle plugin, int numParams)
 	return true;
 }
 
+/* Events Registration */
 public int __RegGamemode(Handle plugin, int numParams)
 {
+	int len_cmd, len_name;
+	GetNativeStringLength(1, len_cmd);
+	GetNativeStringLength(2, len_name);
+	if (len_cmd == 0 || len_name == 0)
+		return false;
+	
 	char start_cmd[MAX_STR_LEN], display_name[MAX_STR_LEN], info[MAX_STR_LEN];
 	GetNativeString(1, start_cmd, MAX_STR_LEN);
 	GetNativeString(2, display_name, MAX_STR_LEN);
 	GetNativeString(3, info, MAX_STR_LEN);
 	
-	int id = GetNativeCell(4);
-	
-	bool exist;
-	PluginData pd = GetPluginData(plugin, true, exist);
-	if (!exist)
-		AddToStatusCheck(plugin);
-	
-	return pd.AddEvent(start_cmd, display_name, info, id, EventType_Gamemode);
+	return RegEventInternal(plugin, EventType_Gamemode, GetNativeCell(4), start_cmd, display_name, info);
 }
 
 public int __RegEvent(Handle plugin, int num_params)
 {
+	int len_cmd, len_name;
+	GetNativeStringLength(1, len_cmd);
+	GetNativeStringLength(2, len_name);
+	if (len_cmd == 0 || len_name == 0)
+		return false;
+		
 	char start_cmd[MAX_STR_LEN], display_name[MAX_STR_LEN], info[MAX_STR_LEN];
 	GetNativeString(1, start_cmd, MAX_STR_LEN);
 	GetNativeString(2, display_name, MAX_STR_LEN);
 	GetNativeString(3, info, MAX_STR_LEN);
 	
-	int id = GetNativeCell(4);
-	
+	return RegEventInternal(plugin, EventType_Event, GetNativeCell(4), start_cmd, display_name, info);
+}
+
+public int __RegPlainEvent(Handle plugin, int num_params)
+{	
+	return RegEventInternal(plugin, EventType_PlainEvent, GetNativeCell(1));
+}
+
+bool RegEventInternal(Handle plugin, EventType type, int id, char[] start_cmd = "", char[] display_name = "", char[] info = "")
+{
 	bool exist;
 	PluginData pd = GetPluginData(plugin, true, exist);
 	if (!exist)
 		AddToStatusCheck(plugin);
-	
-	return pd.AddEvent(start_cmd, display_name, info, id, EventType_Event);
+		
+	return pd.AddEvent(type, id, start_cmd, display_name, info);
 }
 
+/* ConVars Registration */
 public int __RegGamemodeConVar(Handle plugin, int num_params)
-{
+{	
 	char str_convar[MAX_STR_LEN];
 	GetNativeString(1, str_convar, MAX_STR_LEN);
-	int id = GetNativeCell(2);
 	
-	PluginData pd = GetPluginData(plugin);
-	if (pd == null)
-		return false;
-	
-	BBEvent ev = pd.GetEvent(id, EventType_Gamemode);
-	if (ev == null)
-		return false;
-	
-	return ev.AddConVar(str_convar);
+	return RegConVarInternal(plugin, str_convar, GetNativeCell(2), EventType_Gamemode);
 }
 
 public int __RegEventConVar(Handle plugin, int num_params)
 {
 	char str_convar[MAX_STR_LEN];
 	GetNativeString(1, str_convar, MAX_STR_LEN);
-	int id = GetNativeCell(2);
 	
+	return RegConVarInternal(plugin, str_convar, GetNativeCell(2), EventType_Event);
+}
+
+bool RegConVarInternal(Handle plugin, char[] str_convar, int id, EventType type)
+{
 	PluginData pd = GetPluginData(plugin);
 	if (pd == null)
 		return false;
-	
-	BBEvent ev = pd.GetEvent(id, EventType_Event);
+		
+	BBEvent ev = pd.GetEvent(id, type);
 	if (ev == null)
 		return false;
 	
 	return ev.AddConVar(str_convar);
 }
 
-/*
+public int __StartEvent(Handle plugin, int num_params)
+{
+	return StartEventInternal(plugin, EventType_Event, GetNativeCell(1));
+}
+
+public int __StartPlainEvent(Handle plugin, int num_params)
+{
+	return StartEventInternal(plugin, EventType_PlainEvent, GetNativeCell(1));
+}
+
+bool StartEventInternal(Handle plugin, EventType type, int id)
+{
+	if (!g_bCanStartEvents)
+		return false;
+		
+	PluginData pd = GetPluginData(plugin);
+	if (pd == null)
+		return false;
+	
+	BBEvent ev = pd.GetEvent(id, type);
+	if (ev == null)
+		return false;
+	
+	if (ev.Active)
+		return false;
+	
+	ev.Active = true;
+	g_activeEvents.Push(ev);
+	return true;
+}
+
+public int __EndEvent(Handle plugin, int num_params)
+{
+	return EndEventInternal(plugin, EventType_Event, GetNativeCell(1));
+}
+
+public __EndPlainEvent(Handle plugin, int num_params)
+{
+	return EndEventInternal(plugin, EventType_PlainEvent, GetNativeCell(1));
+}
+
+bool EndEventInternal(Handle plugin, EventType type, int id)
+{
+	PluginData pd = GetPluginData(plugin);
+	if (pd == null)
+		return false;
+	
+	BBEvent ev = pd.GetEvent(id, type);
+	if (ev == null)
+		return false;
+		
+	if (!ev.Active)
+		return false;
+	
+	ev.Active = false;
+	g_activeEvents.Erase(g_activeEvents.FindValue(ev));
+	FreeEvent(ev);
+	
+	if (g_pendingGamemode != null && g_activeGamemode == null && g_activeEvents.Length == 0)
+	{
+		g_activeGamemode = g_pendingGamemode;
+		g_pendingGamemode = null;
+		Call_StartForward(g_fwdCanStartGamemode);
+		Call_Finish();
+		CloseHandle(g_fwdCanStartGamemode);
+	}
+	
+	return true;
+}
+
+public int __StartGamemode(Handle plugin, int num_params)
+{
+	if (g_pendingGamemode != null)
+		return false;
+	
+	PluginData pd = GetPluginData(plugin);
+	if (pd == null)
+		return false;
+		
+	int id = GetNativeCell(2);
+	BBEvent ev = pd.GetEvent(id, EventType_Gamemode);
+	if (ev == null)
+		return false;
+	
+	if (g_activeGamemode == ev)
+		return false;
+		
+	g_bCanStartEvents = false;
+	if (g_activeGamemode == null && g_activeEvents.Length == 0)
+	{
+		g_activeGamemode = ev;
+		Call_StartFunction(plugin, GetNativeFunction(1));
+		Call_Finish();
+	}
+	else
+	{
+		g_pendingGamemode = ev;
+		g_fwdCanStartGamemode = CreateForward(ET_Ignore);
+		AddToForward(g_fwdCanStartGamemode, plugin, GetNativeFunction(1));
+	}
+	
+	return true;
+}
+
+public int __EndGamemode(Handle plugin, int num_params)
+{
+	PluginData pd = GetPluginData(plugin);
+	if (pd == null)
+		return false;
+		
+	int id = GetNativeCell(1);
+	BBEvent ev = pd.GetEvent(id, EventType_Gamemode);
+	if (ev == null)
+		return false;
+	
+	if (ev != g_activeGamemode)
+		return false;
+		
+	if (g_pendingGamemode != null)
+	{
+		g_activeGamemode = g_pendingGamemode;
+		g_pendingGamemode = null;
+		Call_StartForward(g_fwdCanStartGamemode);
+		Call_Finish();
+	}
+	else
+	{
+		g_activeGamemode = null;
+		g_bCanStartEvents = true;
+	}
+	return true;
+}
+
 public int __GrabPlayer(Handle plugin, int num_params)
 {
 	int client = GetNativeCell(1);
 	if (!IsFree(client))
 		return false;
 
-	int id = GetNativeCell(2);
-	BBEvent ev = g_plugins.GetEvent(plugin, id);
+	PluginData pd = GetPluginData(plugin);
+	if (pd == null)
+		return false;
+	
+	BBEvent ev = pd.GetEvent(GetNativeCell(3), GetNativeCell(2));
 	if (ev == null)
 		return false;
 	
@@ -654,9 +894,12 @@ public int __GrabPlayer(Handle plugin, int num_params)
 
 public int __FreePlayer(Handle plugin, int num_params)
 {
+	PluginData pd = GetPluginData(plugin);
+	if (pd == null)
+		return false;
+	
 	int client = GetNativeCell(1);
-	int id = GetNativeCell(2);
-	BBEvent ev = g_plugins.GetEvent(plugin, id);
+	BBEvent ev = pd.GetEvent(GetNativeCell(3), GetNativeCell(2));
 	if (ev == null || GetEvent(client) != ev)
 		return false;
 		
@@ -666,15 +909,59 @@ public int __FreePlayer(Handle plugin, int num_params)
 
 public int __FreeAllPlayers(Handle plugin, int num_params)
 {
-	int id = GetNativeCell(1);
-	BBEvent ev = g_plugins.GetEvent(plugin, id);
+	PluginData pd = GetPluginData(plugin);
+	if (pd == null)
+		return false;
+
+	BBEvent ev = pd.GetEvent(GetNativeCell(2), GetNativeCell(1));
 	if (ev == null)
 		return false;
 	
 	FreeEvent(ev);
 	return true;
 }
-*/
+
+bool IsFree(int client)
+{
+	return view_as<BBEvent>(g_players[client]) == null;
+}
+
+BBEvent GetEvent(int client)
+{
+	return view_as<BBEvent>(g_players[client]);
+}
+
+void SetEvent(int client, BBEvent ev)
+{
+	g_players[client] = ev;
+	
+	Call_StartForward(g_fwdOnPlayerBusy);
+	Call_PushCell(client);
+	Call_Finish();
+}
+
+void Free(int client)
+{
+	g_players[client] = null;
+		
+	Call_StartForward(g_fwdOnPlayerFree);
+	Call_PushCell(client);
+	Call_Finish();
+}
+
+void FreeAll()
+{
+	for (int i = 1; i <= MaxClients; ++i)
+		Free(i);
+}
+
+void FreeEvent(BBEvent ev)
+{
+	for (int i = 1; i <= MaxClients; ++i)
+		if (g_players[i] == ev)
+			Free(i);
+}
+
 
 /********************************************
 				MENUS
@@ -685,7 +972,7 @@ void InitMenus()
 	mn_main = new Menu(MenuHandler_Main, MENU_ACTIONS_DEFAULT);
 	mn_main.AddItem("1", "Gamemodes");
 	mn_main.AddItem("2", "Events");
-	mn_main.AddItem("5", "ConVars description");
+	mn_main.AddItem("3", "ConVars description");
 	
 	mn_gamemodes = new Menu(MenuHandler_Gamemodes, MENU_ACTIONS_DEFAULT);
 	mn_events = new Menu(MenuHandler_Events, MENU_ACTIONS_DEFAULT);
@@ -716,33 +1003,10 @@ void AddEventToMenu(Menu menu, BBEvent ev)
 	menu.AddItem(info, name);
 }
 
-void RemovePluginFromMenus(PluginData plugin)
-{
-	int len = plugin.Events.Length;
-	for (int i = 0; i < len; ++i)
-		RemoveEventFromMenus(view_as<BBEvent>(plugin.Events.Get(i)));
-	
-	len = plugin.Gamemodes.Length;
-	for (int i = 0; i < len; ++i)
-		RemoveEventFromMenus(view_as<BBEvent>(plugin.Gamemodes.Get(i)));
-}
-
-void RemoveEventFromMenus(BBEvent ev)
+void RemoveEventFromMenus(BBEvent ev, Menu menu1, Menu menu2)
 {
 	char str_ev[50];
 	Format(str_ev, 50, "%d", ev);
-	
-	Menu menu1, menu2;
-	if (ev.Type == EventType_Gamemode)
-	{
-		menu1 = mn_gamemodes;
-		menu2 = mn_convars_gamemodes;
-	}
-	else
-	{
-		menu1 = mn_events;
-		menu2 = mn_convars_events;
-	}
 	
 	RemoveItem(menu1, str_ev);
 
@@ -807,6 +1071,7 @@ public int MenuHandler_Gamemodes(Menu menu, MenuAction action, int param1, int p
 		char cmd[MAX_STR_LEN];
 		ev.StartCmd.Get(cmd, MAX_STR_LEN);
 		ServerCommand(cmd);
+		menu.Display(param1, MENU_TIME_FOREVER);
 	}
 	return;
 }
@@ -823,6 +1088,7 @@ public int MenuHandler_Events(Menu menu, MenuAction action, int param1, int para
 		char cmd[MAX_STR_LEN];
 		ev.StartCmd.Get(cmd, MAX_STR_LEN);
 		ServerCommand(cmd);
+		menu.Display(param1, MENU_TIME_FOREVER);
 	}
 	return;
 }
@@ -877,52 +1143,13 @@ public int MenuHandler_ConvarsDynamic(Menu menu, MenuAction action, int param1, 
 		menu.GetItem(param2, info, 200, style, name, 100);
 		
 		PrintToChat(param1, info);
+		menu.Display(param1, MENU_TIME_FOREVER);
 	}
 	return;
 }
 
 /********************************************
-				PLAYERS
+			PLAYERS/EVENTS MISC
 ********************************************/
 
-bool IsFree(int client)
-{
-	return view_as<BBEvent>(g_players[client]) == null;
-}
-
-BBEvent GetEvent(int client)
-{
-	return view_as<BBEvent>(g_players[client]);
-}
-
-void SetEvent(int client, BBEvent ev)
-{
-	g_players[client] = ev;
-	
-	Call_StartForward(g_fwdOnPlayerBusy);
-	Call_PushCell(client);
-	Call_Finish();
-}
-
-void Free(int client)
-{
-	g_players[client] = null;
-		
-	Call_StartForward(g_fwdOnPlayerFree);
-	Call_PushCell(client);
-	Call_Finish();
-}
-
-void FreeAll()
-{
-	for (int i = 0; i < 33; ++i)
-		Free(i);
-}
-
-void FreeEvent(BBEvent ev)
-{
-	for (int i = 0; i < 33; ++i)
-		if (g_players[i] == ev)
-			Free(i);
-}
 

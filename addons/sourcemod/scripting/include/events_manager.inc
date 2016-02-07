@@ -10,7 +10,8 @@
 enum EventType
 {
 	EventType_Gamemode = 0,
-	EventType_Event
+	EventType_Event,
+	EventType_PlainEvent
 };
 
 forward OnPlayerFree(client);
@@ -25,9 +26,31 @@ native bool:RegGamemode(const String:start_command[], const String:display_name[
 
 native bool:RegEvent(const String:start_command[], const String:display_name[], const String:info[] = "", id = 0);
 
+native bool:RegPlainEvent(id = 0);
+
 native bool:RegGamemodeConVar(char[] str_convar, id = 0);
 
 native bool:RegEventConVar(char[] str_convar, id = 0);
+
+native bool:StartEvent(id = 0);
+
+native bool:EndEvent(id = 0);
+
+native bool:StartPlainEvent(id = 0);
+
+native bool:EndPlainEvent(id = 0);
+
+functag public StartGamemodeCB();
+
+native bool:StartGamemode(StartGamemodeCB:callback, id = 0);
+
+native bool:EndGamemode(id = 0);
+
+native bool:GrabPlayer(client, EventType:type, id = 0);
+
+native bool:FreePlayer(client, EventType:type, id = 0);
+
+native bool:FreeAllPlayers(EventType:type, id = 0);
 
 forward __EMCheckStatus();
 
