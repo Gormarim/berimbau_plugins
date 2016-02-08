@@ -46,6 +46,8 @@ native bool:StartGamemode(StartGamemodeCB:callback, id = 0);
 
 native bool:EndGamemode(id = 0);
 
+native bool:IsPlayerFree(client);
+
 native bool:GrabPlayer(client, EventType:type, id = 0);
 
 native bool:FreePlayer(client, EventType:type, id = 0);
@@ -75,6 +77,23 @@ public SharedPlugin:__pl_events_manager =
 #if !defined REQUIRE_PLUGIN
 public __pl_events_manager_SetNTVOptional()
 {
-
+	MarkNativeAsOptional("RegPlugin");
+	MarkNativeAsOptional("UnloadPlugin");
+	MarkNativeAsOptional("RegEvent");
+	MarkNativeAsOptional("RegGamemode");
+	MarkNativeAsOptional("RegPlainEvent");
+	MarkNativeAsOptional("RegGamemodeConVar");
+	MarkNativeAsOptional("RegEventConVar");
+	MarkNativeAsOptional("StartEvent");
+	MarkNativeAsOptional("EndEvent");
+	MarkNativeAsOptional("StartPlainEvent");
+	MarkNativeAsOptional("EndPlainEvent");
+	MarkNativeAsOptional("StartGamemode");
+	MarkNativeAsOptional("EndGamemode");
+	MarkNativeAsOptional("IsPlayerFree");
+	MarkNativeAsOptional("GrabPlayer");
+	MarkNativeAsOptional("FreePlayer");
+	MarkNativeAsOptional("FreeAllPlayers");
+	MarkNativeAsOptional("__EMValid");
 }
 #endif

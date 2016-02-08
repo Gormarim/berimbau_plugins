@@ -176,12 +176,26 @@ methodmap BBEvent < ArrayList
 		
 		if (this.ConVars.Length == 0)
 		{
+			char name[MAX_STR_LEN], title[200];
+			this.Name.Get(name, MAX_STR_LEN);
+			Format(title, 200, "%s ConVars:", name);
+			
+			Menu mn_cvs = new Menu(MenuHandler_ConvarsDynamic, MENU_ACTIONS_DEFAULT);
+			mn_cvs.SetTitle(title);
+			mn_cvs.ExitBackButton = true;
+			
 			if (this.Type == EventType_Gamemode)
+			{
 				AddEventToMenu(mn_convars_gamemodes, this);
+				mn_cvs.AddItem("0", "", ITEMDRAW_RAWLINE);
+			}
 			else if (this.Type == EventType_Event)
+			{
 				AddEventToMenu(mn_convars_events, this);
-				
-			this.ConVarsMenu = new Menu(MenuHandler_ConvarsDynamic, MENU_ACTIONS_DEFAULT);
+				mn_cvs.AddItem("1", "", ITEMDRAW_RAWLINE);
+			}
+			
+			this.ConVarsMenu = mn_cvs;
 		}
 		
 		char buffer[200], desc[200];
@@ -197,6 +211,7 @@ methodmap BBEvent < ArrayList
 		delete iter;
 		
 		this.ConVarsMenu.AddItem(desc, str_convar);
+		this.ConVarsMenu.Cancel();
 		this.ConVars.Push(cv);
 		
 		return true;
@@ -353,6 +368,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("EndPlainEvent", __EndPlainEvent);
 	CreateNative("StartGamemode", __StartGamemode);
 	CreateNative("EndGamemode", __EndGamemode);
+	CreateNative("IsPlayerFree", __IsPlayerFree);
 	CreateNative("GrabPlayer", __GrabPlayer);
 	CreateNative("FreePlayer", __FreePlayer);
 	CreateNative("FreeAllPlayers", __FreeAllPlayers);
@@ -598,14 +614,19 @@ void DeleteEvent(BBEvent ev)
 {	
 	if (ev == g_pendingGamemode)
 	{
+		RemovePendingGamemodeFromMenu();
 		if (g_activeGamemode == null)
 			g_bCanStartEvents = true;
 		g_pendingGamemode = null;
+		CloseHandle(g_fwdCanStartGamemode);
 	}
 	else if (ev == g_activeGamemode)
 	{
+		RemoveActiveGamemodeFromMenu();
 		if (g_pendingGamemode != null && ev.Plugin != g_pendingGamemode.Plugin)
 		{
+			RemovePendingGamemodeFromMenu();
+			AddActiveGamemodeToMenu(g_pendingGamemode);
 			g_activeGamemode = g_pendingGamemode;
 			g_pendingGamemode = null;
 			Call_StartForward(g_fwdCanStartGamemode);
@@ -622,14 +643,17 @@ void DeleteEvent(BBEvent ev)
 	if (ev.Active)
 		g_activeEvents.Erase(g_activeEvents.FindValue(ev));
 		
+	if (ev.ConVarsMenu != null)
+		ev.ConVarsMenu.Cancel();
+	
 	FreeEvent(ev);
 	delete ev.StartCmd;
 	delete ev.Name;
 	delete ev.Info;
 	delete ev.ConVars;
+	delete ev.ConVarsMenu;
 	delete ev;
 }
-	
 
 /********************************************
 			NATIVES
@@ -801,6 +825,8 @@ bool EndEventInternal(Handle plugin, EventType type, int id)
 	
 	if (g_pendingGamemode != null && g_activeGamemode == null && g_activeEvents.Length == 0)
 	{
+		RemovePendingGamemodeFromMenu();
+		AddActiveGamemodeToMenu(g_pendingGamemode);
 		g_activeGamemode = g_pendingGamemode;
 		g_pendingGamemode = null;
 		Call_StartForward(g_fwdCanStartGamemode);
@@ -827,16 +853,18 @@ public int __StartGamemode(Handle plugin, int num_params)
 	
 	if (g_activeGamemode == ev)
 		return false;
-		
+	
 	g_bCanStartEvents = false;
 	if (g_activeGamemode == null && g_activeEvents.Length == 0)
 	{
+		AddActiveGamemodeToMenu(ev);
 		g_activeGamemode = ev;
 		Call_StartFunction(plugin, GetNativeFunction(1));
 		Call_Finish();
 	}
 	else
 	{
+		AddPendingGamemodeToMenu(ev);
 		g_pendingGamemode = ev;
 		g_fwdCanStartGamemode = CreateForward(ET_Ignore);
 		AddToForward(g_fwdCanStartGamemode, plugin, GetNativeFunction(1));
@@ -858,9 +886,12 @@ public int __EndGamemode(Handle plugin, int num_params)
 	
 	if (ev != g_activeGamemode)
 		return false;
-		
+	
+	RemoveActiveGamemodeFromMenu();
 	if (g_pendingGamemode != null)
 	{
+		RemovePendingGamemodeFromMenu();
+		AddActiveGamemodeToMenu(g_pendingGamemode);
 		g_activeGamemode = g_pendingGamemode;
 		g_pendingGamemode = null;
 		Call_StartForward(g_fwdCanStartGamemode);
@@ -871,7 +902,13 @@ public int __EndGamemode(Handle plugin, int num_params)
 		g_activeGamemode = null;
 		g_bCanStartEvents = true;
 	}
+	
 	return true;
+}
+
+public int __IsPlayerFree(Handle plugin, int num_params)
+{
+	return IsFree(GetNativeCell(1));
 }
 
 public int __GrabPlayer(Handle plugin, int num_params)
@@ -886,6 +923,9 @@ public int __GrabPlayer(Handle plugin, int num_params)
 	
 	BBEvent ev = pd.GetEvent(GetNativeCell(3), GetNativeCell(2));
 	if (ev == null)
+		return false;
+	
+	if (!ev.Active)
 		return false;
 	
 	SetEvent(client, ev);
@@ -903,6 +943,9 @@ public int __FreePlayer(Handle plugin, int num_params)
 	if (ev == null || GetEvent(client) != ev)
 		return false;
 		
+	if (!ev.Active)
+		return false;
+		
 	Free(client);
 	return true;
 }
@@ -915,6 +958,9 @@ public int __FreeAllPlayers(Handle plugin, int num_params)
 
 	BBEvent ev = pd.GetEvent(GetNativeCell(2), GetNativeCell(1));
 	if (ev == null)
+		return false;
+		
+	if (!ev.Active)
 		return false;
 	
 	FreeEvent(ev);
@@ -962,7 +1008,6 @@ void FreeEvent(BBEvent ev)
 			Free(i);
 }
 
-
 /********************************************
 				MENUS
 ********************************************/
@@ -970,12 +1015,21 @@ void FreeEvent(BBEvent ev)
 void InitMenus()
 {
 	mn_main = new Menu(MenuHandler_Main, MENU_ACTIONS_DEFAULT);
-	mn_main.AddItem("1", "Gamemodes");
-	mn_main.AddItem("2", "Events");
-	mn_main.AddItem("3", "ConVars description");
+	mn_main.SetTitle("Events Manager:");
+	mn_main.Pagination = MENU_NO_PAGINATION;
+	mn_main.ExitButton = true;
+	mn_main.AddItem("", "Gamemodes");
+	mn_main.AddItem("", "Events");
+	mn_main.AddItem("", "ConVars description");
 	
 	mn_gamemodes = new Menu(MenuHandler_Gamemodes, MENU_ACTIONS_DEFAULT);
+	mn_gamemodes.SetTitle("Gamemodes:");
+	mn_gamemodes.ExitBackButton = true;
+	
 	mn_events = new Menu(MenuHandler_Events, MENU_ACTIONS_DEFAULT);
+	mn_events.SetTitle("Events:");
+	mn_events.ExitBackButton = true;
+	
 	//mn_custom = new Menu(MenuHandler_Custom, MENU_ACTIONS_DEFAULT);
 	//mn_custom_save = new Menu(MenuHandler_CustomSave, MENU_ACTIONS_DEFAULT);
 	//mn_custom_save_gamemodes = new Menu(MenuHandler_CustomSaveGamemodes, MENU_ACTIONS_DEFAULT);
@@ -984,13 +1038,49 @@ void InitMenus()
 	//mn_custom_events = new Menu(MenuHandler_CustomEvents, MENU_ACTIONS_DEFAULT);
 	
 	//mn_commands = new Menu(MenuHandler_Commands, MENU_ACTIONS_DEFAULT);
+	
 	mn_convars = new Menu(MenuHandler_Convars, MENU_ACTIONS_DEFAULT);
+	mn_convars.SetTitle("ConVars description:");
+	mn_convars.ExitBackButton = true;
 	mn_convars.AddItem("1", "Gamemodes");
 	mn_convars.AddItem("2", "Events");
 	
 	mn_convars_gamemodes = new Menu(MenuHandler_ConvarsGamemodes, MENU_ACTIONS_DEFAULT);
-	mn_convars_events = new Menu(MenuHandler_ConvarsEvents, MENU_ACTIONS_DEFAULT);
+	mn_convars_gamemodes.SetTitle("Gamemodes:");
+	mn_convars_gamemodes.ExitBackButton = true;
 	
+	mn_convars_events = new Menu(MenuHandler_ConvarsEvents, MENU_ACTIONS_DEFAULT);
+	mn_convars_events.SetTitle("Events:");
+	mn_convars_events.ExitBackButton = true;
+	
+}
+
+void AddPendingGamemodeToMenu(BBEvent ev)
+{
+	char name[MAX_STR_LEN], display[100];
+	ev.Name.Get(name, MAX_STR_LEN);
+	Format(display, 100, "Pending Gamemode:\n%s", name);
+	mn_main.AddItem("5", display);
+	mn_main.Cancel();
+}
+
+void RemovePendingGamemodeFromMenu()
+{
+	RemoveItem(mn_main, "5");
+}
+
+void AddActiveGamemodeToMenu(BBEvent ev)
+{
+	char name[MAX_STR_LEN], display[100];
+	ev.Name.Get(name, MAX_STR_LEN);
+	Format(display, 100, "Active Gamemode:\n%s", name);
+	mn_main.AddItem("4", display, ITEMDRAW_DISABLED);
+	mn_main.Cancel();
+}
+
+void RemoveActiveGamemodeFromMenu()
+{
+	RemoveItem(mn_main, "4");
 }
 
 void AddEventToMenu(Menu menu, BBEvent ev)
@@ -1001,6 +1091,7 @@ void AddEventToMenu(Menu menu, BBEvent ev)
 	ev.Name.Get(name, MAX_STR_LEN);
 	
 	menu.AddItem(info, name);
+	menu.Cancel();
 }
 
 void RemoveEventFromMenus(BBEvent ev, Menu menu1, Menu menu2)
@@ -1033,6 +1124,8 @@ void RemoveItem(Menu menu, char[] str_ev)
 		}
 		--sz;
 	}
+	
+	menu.Cancel();
 }
 
 public int MenuHandler_Main(Menu menu, MenuAction action, int param1, int param2)
@@ -1053,6 +1146,15 @@ public int MenuHandler_Main(Menu menu, MenuAction action, int param1, int param2
 			{
 				mn_convars.Display(param1, MENU_TIME_FOREVER);
 			}
+			default:
+			{
+				Menu mn_abort = new Menu(MenuHandler_Abort, MENU_ACTIONS_DEFAULT);
+				mn_abort.ExitButton = false;
+				mn_abort.SetTitle("Abort pending gamemode?");
+				mn_abort.AddItem("", "Yes");
+				mn_abort.AddItem("", "No");
+				mn_abort.Display(param1, MENU_TIME_FOREVER);
+			}
 		}
 	}
 	
@@ -1070,9 +1172,11 @@ public int MenuHandler_Gamemodes(Menu menu, MenuAction action, int param1, int p
 		BBEvent ev = view_as<BBEvent>(StringToInt(info));
 		char cmd[MAX_STR_LEN];
 		ev.StartCmd.Get(cmd, MAX_STR_LEN);
-		ServerCommand(cmd);
-		menu.Display(param1, MENU_TIME_FOREVER);
+		ClientCommand(param1, cmd);
 	}
+	if (action == MenuAction_Cancel && param2 == MenuCancel_ExitBack)
+		mn_main.Display(param1, MENU_TIME_FOREVER);
+	
 	return;
 }
 
@@ -1087,9 +1191,11 @@ public int MenuHandler_Events(Menu menu, MenuAction action, int param1, int para
 		BBEvent ev = view_as<BBEvent>(StringToInt(info));
 		char cmd[MAX_STR_LEN];
 		ev.StartCmd.Get(cmd, MAX_STR_LEN);
-		ServerCommand(cmd);
-		menu.Display(param1, MENU_TIME_FOREVER);
+		ClientCommand(param1, cmd);
 	}
+	if (action == MenuAction_Cancel && param2 == MenuCancel_ExitBack)
+		mn_main.Display(param1, MENU_TIME_FOREVER);
+		
 	return;
 }
 
@@ -1097,11 +1203,20 @@ public int MenuHandler_Convars(Menu menu, MenuAction action, int param1, int par
 {
 	if (action == MenuAction_Select)
 	{
-		if (param2 == 0)
+		if (param2 == 0 && mn_convars_gamemodes.ItemCount != 0)
+		{
 			mn_convars_gamemodes.Display(param1, MENU_TIME_FOREVER);
-		else
+			return;
+		}
+		if (param2 == 1 && mn_convars_events.ItemCount != 0)
+		{
 			mn_convars_events.Display(param1, MENU_TIME_FOREVER);
+			return;
+		}
+		mn_convars.Display(param1, MENU_TIME_FOREVER);
 	}
+	if (action == MenuAction_Cancel && param2 == MenuCancel_ExitBack)
+		mn_main.Display(param1, MENU_TIME_FOREVER);
 			
 	return;
 }
@@ -1117,6 +1232,9 @@ public int MenuHandler_ConvarsGamemodes(Menu menu, MenuAction action, int param1
 		BBEvent ev = view_as<BBEvent>(StringToInt(info));
 		ev.ConVarsMenu.Display(param1, MENU_TIME_FOREVER);
 	}
+	if (action == MenuAction_Cancel && param2 == MenuCancel_ExitBack)
+		mn_convars.Display(param1, MENU_TIME_FOREVER);
+		
 	return;
 }
 
@@ -1131,6 +1249,9 @@ public int MenuHandler_ConvarsEvents(Menu menu, MenuAction action, int param1, i
 		BBEvent ev = view_as<BBEvent>(StringToInt(info));
 		ev.ConVarsMenu.Display(param1, MENU_TIME_FOREVER);
 	}
+	if (action == MenuAction_Cancel && param2 == MenuCancel_ExitBack)
+		mn_convars.Display(param1, MENU_TIME_FOREVER);
+
 	return;
 }
 
@@ -1145,8 +1266,40 @@ public int MenuHandler_ConvarsDynamic(Menu menu, MenuAction action, int param1, 
 		PrintToChat(param1, info);
 		menu.Display(param1, MENU_TIME_FOREVER);
 	}
+	if (action == MenuAction_Cancel && param2 == MenuCancel_ExitBack)
+	{
+		char info[200], name[100];
+		int style;
+		menu.GetItem(0, info, 200, style, name, 100);
+		if (StringToInt(info) == 0)
+			mn_convars_gamemodes.Display(param1, MENU_TIME_FOREVER);
+		else
+			mn_convars_events.Display(param1, MENU_TIME_FOREVER);
+	}
+		
 	return;
 }
+
+public int MenuHandler_Abort(Menu menu, MenuAction action, int param1, int param2)
+{
+	if (action == MenuAction_Select)
+	{
+		if (param2 == 0 && g_pendingGamemode != null)
+		{
+			RemovePendingGamemodeFromMenu();
+			if (g_activeGamemode == null)
+				g_bCanStartEvents = true;
+			g_pendingGamemode = null;
+			CloseHandle(g_fwdCanStartGamemode);
+		}
+		mn_main.Display(param1, MENU_TIME_FOREVER);
+	}
+	if (action == MenuAction_End || action == MenuAction_Cancel)
+		delete menu;
+	
+	return;
+}
+		
 
 /********************************************
 			PLAYERS/EVENTS MISC
